@@ -29,16 +29,6 @@ All binaries are built from the official MinIO source code using:
 env GOOS=linux GOARCH=[amd64|arm64] CGO_ENABLED=0 go build
 ```
 
-## Automation
-
-This repository uses GitHub Actions to:
-1. Check for new MinIO releases daily
-2. Download the source code
-3. Build binaries for Linux platforms
-4. Create a GitHub release with the binaries
-5. Link to the official MinIO release notes
-
-
 ## License
 
 MinIO is licensed under the GNU AGPLv3. See the [official MinIO repository](https://github.com/minio/minio) for details.
