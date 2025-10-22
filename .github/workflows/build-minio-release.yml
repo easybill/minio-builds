@@ -123,8 +123,6 @@ jobs:
           UPSTREAM_URL="https://github.com/minio/minio/releases/tag/${VERSION}"
           
           cat > release_notes.md << EOF
-          # MinIO ${VERSION}
-          
           This is an automated build of MinIO ${VERSION} for Linux.
           
           - \`minio-linux-amd64\`: Linux x86_64 binary
