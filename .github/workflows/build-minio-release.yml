@@ -1,0 +1,165 @@
+name: Build MinIO Release
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      - name: Get latest release from easybill/minio
+        id: our_release
+        run: |
+          LATEST=$(gh release list --repo easybill/minio --limit 1 --json tagName --jq '.[0].tagName' || echo "none")
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Our latest release: $LATEST"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Get latest release from minio/minio
+        id: upstream_release
+        run: |
+          LATEST=$(gh release list --repo minio/minio --limit 1 --json tagName --jq '.[0].tagName')
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Upstream latest release: $LATEST"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check if new version exists
+        id: check_version
+        run: |
+          OUR_VERSION="${{ steps.our_release.outputs.version }}"
+          UPSTREAM_VERSION="${{ steps.upstream_release.outputs.version }}"
+          
+          if [ "$OUR_VERSION" = "$UPSTREAM_VERSION" ]; then
+            echo "No new version available. Our version: $OUR_VERSION"
+            echo "needs_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version available: $UPSTREAM_VERSION (current: $OUR_VERSION)"
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download MinIO source
+        if: steps.check_version.outputs.needs_build == 'true'
+        run: |
+          VERSION="${{ steps.upstream_release.outputs.version }}"
+          echo "Downloading source for version $VERSION"
+          
+          wget "https://github.com/minio/minio/archive/refs/tags/${VERSION}.tar.gz" -O minio-source.tar.gz
+          
+          mkdir -p minio-source
+          tar -xzf minio-source.tar.gz -C minio-source --strip-components=1
+
+      - name: Build MinIO for linux/amd64
+        if: steps.check_version.outputs.needs_build == 'true'
+        run: |
+          cd minio-source
+          VERSION="${{ steps.upstream_release.outputs.version }}"
+          
+          env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X github.com/minio/minio/cmd.Version=${VERSION}" \
+            -o ../minio-linux-amd64
+          
+          cd ..
+          chmod +x minio-linux-amd64
+          echo "Built minio-linux-amd64"
+
+      - name: Build MinIO for linux/arm64
+        if: steps.check_version.outputs.needs_build == 'true'
+        run: |
+          cd minio-source
+          VERSION="${{ steps.upstream_release.outputs.version }}"
+          
+          env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X github.com/minio/minio/cmd.Version=${VERSION}" \
+            -o ../minio-linux-arm64
+          
+          cd ..
+          chmod +x minio-linux-arm64
+          echo "Built minio-linux-arm64"
+
+      - name: Update README.md
+        if: steps.check_version.outputs.needs_build == 'true'
+        run: |
+          VERSION="${{ steps.upstream_release.outputs.version }}"
+          
+          sed -i "s/Latest Release: .*/Latest Release: ${VERSION}/" README.md
+          
+          DATE=$(date +"%Y-%m-%d")
+          sed -i "s/Last Updated: .*/Last Updated: ${DATE}/" README.md
+
+      - name: Commit README.md changes
+        if: steps.check_version.outputs.needs_build == 'true'
+        run: |
+          VERSION="${{ steps.upstream_release.outputs.version }}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add README.md
+          git commit -m "Update to MinIO ${VERSION}"
+          git push
+
+      - name: Create GitHub Release
+        if: steps.check_version.outputs.needs_build == 'true'
+        run: |
+          VERSION="${{ steps.upstream_release.outputs.version }}"
+          UPSTREAM_URL="https://github.com/minio/minio/releases/tag/${VERSION}"
+          
+          cat > release_notes.md << EOF
+          # MinIO ${VERSION}
+          
+          This is an automated build of MinIO ${VERSION} for Linux.
+          
+          - \`minio-linux-amd64\`: Linux x86_64 binary
+          - \`minio-linux-arm64\`: Linux ARM64 binary
+          - \`minio-source.tar.gz\`: Source code tarball
+          
+          ## Upstream Release
+          For official release notes and details, see the upstream MinIO release:
+          ${UPSTREAM_URL}
+          
+          ## Build Information
+          - Built from source using Go
+          - Build date: $(date +"%Y-%m-%d %H:%M:%S UTC")
+          - Built with: \`GOOS=linux GOARCH=[amd64|arm64] CGO_ENABLED=0 go build\`
+          EOF
+          
+          gh release create "${VERSION}" \
+            --title "MinIO ${VERSION}" \
+            --notes-file release_notes.md \
+            minio-linux-amd64 \
+            minio-linux-arm64 \
+            minio-source.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check_version.outputs.needs_build }}" = "true" ]; then
+            echo "✅ Successfully built and released MinIO ${{ steps.upstream_release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Artifacts created:**" >> $GITHUB_STEP_SUMMARY
+            echo "- minio-linux-amd64" >> $GITHUB_STEP_SUMMARY
+            echo "- minio-linux-arm64" >> $GITHUB_STEP_SUMMARY
+            echo "- minio-source.tar.gz" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No new version to build. Current version: ${{ steps.our_release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
