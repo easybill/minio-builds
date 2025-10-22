@@ -9,7 +9,7 @@ MinIO switched to a source-only distribution model. This repository automaticall
 - Builds binaries for Linux (amd64 and arm64)
 - Publishes them as GitHub releases
 
-Latest Release: none
+Latest Release: RELEASE.2025-10-15T17-29-55Z
 
 Last Updated: 2025-10-22
 
