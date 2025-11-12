@@ -11,7 +11,7 @@ MinIO switched to a source-only distribution model. This repository automaticall
 
 Latest Release: RELEASE.2025-10-15T17-29-55Z
 
-Last Updated: 2025-10-22
+Last Updated: 2025-11-12
 
 ## Download
 
